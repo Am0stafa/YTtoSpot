@@ -1,56 +1,88 @@
-#It goes through your liked videos YouTube, filters the songs, searches them on Spotify, creates a new Spotify playlist with all the available songs
-
-import spotipy
-from spotipy.oauth2 import SpotifyClientCredentials
-
-spotifyClientId = "ae3f44ab6e8c4df685fd5c49e8bbe441"
-spotifyCLientSecret = "a8702350ce9542388b23af7f31325d01"
-
-client_credentials_manager = SpotifyClientCredentials(client_id=spotifyClientId, client_secret=spotifyCLientSecret)
-
-sp = spotipy.Spotify(client_credentials_manager=client_credentials_manager)
-
-#Get the liked videos from YouTube
-
-
-import json
-import os
-
 import google_auth_oauthlib.flow
 import googleapiclient.discovery
 import googleapiclient.errors
-import requests
-import youtube_dl
+import spotipy
+import spotipy.util as util
+import concurrent.futures
+from spotipy.oauth2 import SpotifyClientCredentials, SpotifyOAuth
 
-class CreatePlayList:
-    def __init__(self):
-        self.youtube_client = self.get_youtube_client()
-        self.all_song_info = {}
-    
+client_secrets_file = "client_secret.json"
 
-    #Log into Youtube
-    def get_youtube_client(self):
-        # Disable OAuthlib's HTTPS verification when running locally.
-        os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+def get_liked_songs(youtube_credentials):
+    # Set up the YouTube Data API client
+    youtube = googleapiclient.discovery.build("youtube", "v3", credentials=youtube_credentials)
 
-        api_service_name = "youtube"
-        api_version = "v3"
-        client_secrets_file = "client_secret.json"
+    # Call the YouTube API to retrieve the user's liked videos and identify the songs
+    liked_songs = []
+    next_page_token = None
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        while True:
+            futures = [executor.submit(get_liked_songs_page, youtube, next_page_token)]
+            for future in concurrent.futures.as_completed(futures):
+                songs, next_page_token = future.result()
+                liked_songs.extend(songs)
+            if not next_page_token:
+                break
+    return liked_songs
 
-        # Get credentials and create an API client
-        scopes = ["https://www.googleapis.com/auth/youtube.readonly"]
-        flow = google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file(
-            client_secrets_file, scopes)
-        credentials = flow.run_console()
-        youtube_client = googleapiclient.discovery.build(
-            api_service_name, api_version, credentials=credentials)
+def get_liked_songs_page(youtube, page_token):
+    request = youtube.videos().list(
+        part="snippet",
+        myRating="like",
+        maxResults=50,
+        pageToken=page_token
+    )
+    response = request.execute()
+    songs = []
+    for video in response["items"]:
+        if "categoryId" in video["snippet"] and video["snippet"]["categoryId"] == "10":
+            songs.append(video)
+    next_page_token = response.get("nextPageToken")
+    return songs, next_page_token
 
-        return youtube_client
+def create_spotify_playlist(spotify, playlist_name, playlist_description):
+    # Create the playlist if it doesn't already exist
+    playlist_id = None
+    for playlist in spotify.current_user_playlists()["items"]:
+        if playlist["name"] == playlist_name:
+            playlist_id = playlist["id"]
+            break
+    if not playlist_id:
+        playlist = spotify.user_playlist_create(spotify.current_user()["id"], playlist_name, public=True, description=playlist_description)
+        playlist_id = playlist["id"]
+    return playlist_id
 
-    #log into Spotify
-    
-        
+def add_songs_to_spotify_playlist(spotify, playlist_id, liked_songs):
+    # Add the songs to the playlist
+    spotify_tracks = []
+    for song in liked_songs:
+        query = song["snippet"]["title"]
+        results = spotify.search(q=query, type="track", limit=1)
+        if results["tracks"]["items"]:
+            track = results["tracks"]["items"][0]
+            spotify_tracks.append(track["uri"])
+    if spotify_tracks:
+        spotify.user_playlist_add_tracks(spotify.current_user()["id"], playlist_id, spotify_tracks)
 
-if __name__ == '__main__':
-    cp = CreatePlayList()
-    print(cp.youtube_client)
+# Set up the OAuth2 client for YouTube
+youtube_scopes = ["https://www.googleapis.com/auth/youtube.readonly"]
+youtube_flow = google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file(
+    client_secrets_file, youtube_scopes)
+youtube_credentials = youtube_flow.run_console()
+
+# Get the user's liked songs from YouTube
+liked_songs = get_liked_songs(youtube_credentials)
+
+# Set up the OAuth2 client for Spotify
+spotify_scopes = ["playlist-modify-public"]
+spotify_client_id = "ae3f44ab6e8c4df685fd5c49e8bbe441"
+spotify_client_secret = "a8702350ce9542388b23af7f31325d01"
+redirect_uri = "https://example.com/callback"
+client_credentials_manager = SpotifyClientCredentials(client_id=spotify_client_id, client_secret=spotify_client_secret)
+spotify = spotipy.Spotify(client_credentials_manager=client_credentials_manager, auth_manager=SpotifyOAuth(client_id=spotify_client_id, client_secret=spotify_client_secret, redirect_uri=redirect_uri, scope=spotify_scopes))
+
+# Create the Spotify playlist and add the songs to it
+playlist_name = "My Liked Songs"
+playlist_description = "A playlist of my liked songs on YouTube"
+playlist_id = create_spotify_playlist(spotify, playlist_name, playlist_description)
+add_songs_to_spotify_playlist(spotify, playlist_id, liked_songs)
