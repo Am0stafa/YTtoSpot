@@ -40,6 +40,18 @@ def get_liked_songs_page(youtube, page_token):
     next_page_token = response.get("nextPageToken")
     return songs, next_page_token
 
+# def create_spotify_playlist(spotify, playlist_name, playlist_description):
+#     # Create the playlist if it doesn't already exist
+#     playlist_id = None
+#     for playlist in spotify.current_user_playlists()["items"]:
+#         if playlist["name"] == playlist_name:
+#             playlist_id = playlist["id"]
+#             break
+#     if not playlist_id:
+#         playlist = spotify.user_playlist_create(spotify.current_user()["id"], playlist_name, public=True, description=playlist_description)
+#         playlist_id = playlist["id"]
+#     return playlist_id
+
 def create_spotify_playlist(spotify, playlist_name, playlist_description):
     # Create the playlist if it doesn't already exist
     playlist_id = None
@@ -51,6 +63,7 @@ def create_spotify_playlist(spotify, playlist_name, playlist_description):
         playlist = spotify.user_playlist_create(spotify.current_user()["id"], playlist_name, public=True, description=playlist_description)
         playlist_id = playlist["id"]
     return playlist_id
+
 
 def add_songs_to_spotify_playlist(spotify, playlist_id, liked_songs):
     # Add the songs to the playlist
@@ -82,7 +95,18 @@ client_credentials_manager = SpotifyClientCredentials(client_id=spotify_client_i
 spotify = spotipy.Spotify(client_credentials_manager=client_credentials_manager, auth_manager=SpotifyOAuth(client_id=spotify_client_id, client_secret=spotify_client_secret, redirect_uri=redirect_uri, scope=spotify_scopes))
 
 # Create the Spotify playlist and add the songs to it
+
+# playlist_name = "My Liked Songs"
+# playlist_description = "A playlist of my liked songs on YouTube"
+# playlist_id = create_spotify_playlist(spotify, playlist_name, playlist_description)
+# add_songs_to_spotify_playlist(spotify, playlist_id, liked_songs)
+
+# Create the Spotify playlist and add the songs to it
 playlist_name = "My Liked Songs"
 playlist_description = "A playlist of my liked songs on YouTube"
 playlist_id = create_spotify_playlist(spotify, playlist_name, playlist_description)
 add_songs_to_spotify_playlist(spotify, playlist_id, liked_songs)
+
+# Construct the playlist URL and print it
+playlist_url = f"https://open.spotify.com/playlist/{playlist_id}"
+print(f"Your Spotify playlist is ready: {playlist_url}")
